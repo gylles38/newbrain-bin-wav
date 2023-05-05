@@ -126,24 +126,6 @@ class BeepGenerator:
 
         self.audio.append(list(sine_wave))
         return
-   
-    """     
-    def append_sinewaves(
-            self,
-            datas=['pilot',1,0,0,1]):
-
-        for data in zip(datas):
-            if data[0] == 'pilot':
-                sine_wave = 500 * pilot_wav # répète 500 fois le signal pilote
-            elif data[0] == 1:
-                sine_wave += one_wav
-            else:
-                sine_wave += zero_wav
-
-        self.audio.extend(list(sine_wave))
-
-        return 
-    """
 
     def append_sinewaves(
             self,
@@ -218,45 +200,16 @@ if __name__ == "__main__":
 
     filesizebytes = os.path.getsize(file_in)
 
-    #"""
     up_long = [0.68,0.7,0.69,0.7,0.68,0.7,0.69,0.7,0.69,0.7,0.68,0.7,0.69,0.7,0.68,0.7,0.69,0.5]
     up_short = [0.68,0.7,0.69,0.7,0.68,0.7,0.69,0.7,0.68]
     down_long = [-0.68,-0.7,-0.69,-0.7,-0.68,-0.7,-0.69,-0.7,-0.68,-0.7,-0.69,-0.7,-0.68,-0.7,-0.69,-0.7,-0.68,0.3]
     down_short = [-0.68,-0.7,-0.69,-0.7,-0.68,-0.7,-0.69,-0.7,-0.68]
-    #"""
 
-    """
-    up_long = ["UL","UL"]
-    up_short = ["US"]
-    down_long = ["DL", "DL"]
-    down_short = ["DS"]
-    """
-
-    """
-    up_long = [0.7,0.7]
-    up_short = [0.1]
-    down_long = [-0.7,-0.7]
-    down_short = [-0.1]
-    """
 
     pilot_wav = up_long + down_short + up_short + down_long
     one_wav = up_short + down_short + up_short + down_short
     zero_wav = up_long + down_long
-    block_end = zero_wav + one_wav + (9 * zero_wav)
-
-    """
-    pilot_wav = ["PILOT"]
-    one_wav = ["ONE"]
-    zero_wav = ["ZERO"]
-    block_end = ["BLKEND"]
-    """
-
-    """
-    pilot_wav = [1,1,1]
-    one_wav = [1]
-    zero_wav = [0]
-    block_end = [0,0,0]
-    """
+    block_end = zero_wav + one_wav + (10 * zero_wav)
     
     global sine_wave
 
@@ -265,49 +218,62 @@ if __name__ == "__main__":
     bytes_read = 0
     bloc_number = 1
     no_title = False
+
+    block_length_found = False  # permet de calculer le nombre d'octets de données du fichier
+    length_data = 9999 # contient le nombre d'octets de données du fichier
+    low_byte = 0
+
     sine_wave = 1000 * pilot_wav # répète 100 fois le signal pilote
    
     begin = '1'
     bg.append_sinewaves(datas=begin,sine_wave=sine_wave, end=False) # Indique le début des données (Begin 1)
 
-    # pour test
-    #for x in range(200):
-    #    bg.audio.append(0)
-
-    #bg.append_silence()
-
     byte = file.read(1)
-    title_found = False # Pour gérer les fichiers sans titre
+    #title_found = False # Pour gérer les fichiers sans titre
+    #first_block = True
+
     while byte:
         bytes_read += 1
         binary = f'{byte[0]:0>8b}'
         print(binary , '=DEC=>' , byte[0] , '=HEX=>' , hex(int(binary, 2)))
 
+        # Compte le nombre de zeros consécutifs
         if int(binary) == 0:
             zeroes += 1
         else:
             zeroes = 0
 
+        if bloc_number > 1 and block_length_found == False:
+            # Calcul du nombre d'octets de données du bloc en cours
+            low_byte = byte[0]
+            bg.append_sinewaves(datas=binary,sine_wave=[], end= (zeroes < 9 and extent == 'bas') or (zeroes < 11 and extent == 'bin'))
+            byte = file.read(1)
+
+            bytes_read += 1
+            binary = f'{byte[0]:0>8b}'
+            print(binary , '=DEC=>' , byte[0] , '=HEX=>' , hex(int(binary, 2)))
+
+            length_data = int(format(byte[0], '08b') + format(low_byte, '08b'),2) + 12 # 12 octets après le dernier octet de données du bloc
+            print("Nb octets de données du bloc courant : ", length_data - 12)
+            block_length_found = True
+
         bg.append_sinewaves(datas=binary,sine_wave=[], end= (zeroes < 9 and extent == 'bas') or (zeroes < 11 and extent == 'bin'))
 
-        # condition 1 fichier avec titre, condition 2 pas de titre
-        if no_title == False:
-            no_title = title_found == False and bytes_read == 2 and int(binary) == 0 # pas de titre dans le fichier
-        if zeroes == 9:
+        if bloc_number == 1:
+            no_title = bytes_read == 2 and int(binary) == 0 # pas de titre dans le fichier
+
+        #if zeroes == 10 or length_data == 0:
+        if zeroes == 10:
             print("fin du bloc")
-            if no_title == True and title_found == False:
-                print("Fichier sans titre")
-                bg.audio.extend(list(zero_wav + one_wav + (10 * zero_wav)))
-            else:
-                if title_found == False:
+            bg.audio.extend(list(block_end))
+            if bloc_number == 1:
+                if no_title == True:
+                    print("Fichier sans titre")
+                else:
                     print("Fichier avec titre")
 
-                bg.audio.extend(list(block_end))
-
-            if (title_found == False):
                 print ("Bloc titre généré")
 
-            title_found = True # Toujours vrai dès que le premier bloc est généré
             zeroes = 0
 
             if filesizebytes > (bytes_read + 1): # Pas la fin du fichier -1
@@ -315,10 +281,15 @@ if __name__ == "__main__":
                 # Début du bloc suivant
                 bloc_number +=1
                 sine_wave = 1000 * pilot_wav # répète 100 fois le signal pilote
-                begin = '1'
-                bg.append_sinewaves(datas=begin,sine_wave=sine_wave, end=False) # Indique le début des données (Begin 1)
+                begin = '10000000001'
+                bg.append_sinewaves(datas=begin,sine_wave=sine_wave, end=False) # Avant le début des données (Begin)
+                block_length_found = False
 
         byte = file.read(1)
+
+        #length_data -= 1
+        #if length_data == 1:
+        #    print ("la fin approche")
 
     bg.append_silence(duration_milliseconds= 200)
     bg.save_wav(file_name)
